@@ -3,7 +3,7 @@ import {
   CheckCircle, Clock, Phone, AlertCircle,
   ChevronLeft, ChevronRight, Calendar, Trash2,
   UserPlus, X, Info, Settings, LayoutDashboard,
-  Users, Key, Banknote, Edit2
+  Users, Key, Banknote, Edit2, ArrowRightLeft
 } from 'lucide-react';
 
 // ============================================================================
@@ -30,12 +30,14 @@ export default function DiarioDeClasse() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isLocacaoModalOpen, setIsLocacaoModalOpen] = useState(false);
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
 
   const [modalAulaId, setModalAulaId] = useState(null);
   const [editandoAlunoId, setEditandoAlunoId] = useState(null);
-  const [novoAluno, setNovoAluno] = useState({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' });
+  const [novoAluno, setNovoAluno] = useState({ nome: '', whatsapp: '', nivel: 'FUN', plano: 'Avulso', recorrencia: '1' });
   const [novoHorario, setNovoHorario] = useState({ horario: '', professor: '' });
   const [novaLocacao, setNovaLocacao] = useState({ horario: '', nomeCliente: '', whatsapp: '', valor: '' });
+  const [moveInfo, setMoveInfo] = useState({ alunoId: null, nome: '', fromAulaId: null, toAulaId: '' });
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'info', actionLink: null });
   const [confirmDialog, setConfirmDialog] = useState({ show: false, title: '', message: '', onConfirm: null });
@@ -49,7 +51,6 @@ export default function DiarioDeClasse() {
     setTimeout(() => setToast({ show: false, message: '', type: 'info', actionLink: null }), 6000);
   };
 
-  /* STREAMING_CHUNK:Buscando dados da planilha... */
   useEffect(() => {
     if (!URL_DO_GOOGLE_APPS_SCRIPT || URL_DO_GOOGLE_APPS_SCRIPT === 'COLE_AQUI_A_SUA_URL') return;
 
@@ -100,7 +101,6 @@ export default function DiarioDeClasse() {
     finally { setLoading(false); }
   };
 
-  /* STREAMING_CHUNK:Lógica de Aulas e Alunos... */
   const handleAdicionarHorario = (e) => {
     e.preventDefault();
     performAction('ADD_HORARIO', novoHorario, (result) => {
@@ -118,20 +118,13 @@ export default function DiarioDeClasse() {
   const abrirEdicaoAluno = (aulaId, aluno) => {
     setModalAulaId(aulaId);
     setEditandoAlunoId(aluno.id);
-    setNovoAluno({
-      nome: aluno.nome,
-      whatsapp: aluno.whatsapp || '',
-      nivel: aluno.nivel,
-      plano: aluno.plano,
-      recorrencia: '1'
-    });
+    setNovoAluno({ nome: aluno.nome, whatsapp: aluno.whatsapp || '', nivel: aluno.nivel, plano: aluno.plano, recorrencia: '1' });
     setIsModalOpen(true);
   };
 
   const handleSalvarAluno = (e) => {
     e.preventDefault();
 
-    // MODO EDIÇÃO
     if (editandoAlunoId) {
       performAction('EDIT_ALUNO', { alunoId: editandoAlunoId, aluno: novoAluno }, () => {
         setDb(prev => {
@@ -139,20 +132,16 @@ export default function DiarioDeClasse() {
           const aIdx = novoDb[dateKey].findIndex(a => a.id === modalAulaId);
           if (aIdx !== -1) {
             const alIdx = novoDb[dateKey][aIdx].alunos.findIndex(al => al.id === editandoAlunoId);
-            if (alIdx !== -1) {
-              novoDb[dateKey][aIdx].alunos[alIdx] = { ...novoDb[dateKey][aIdx].alunos[alIdx], ...novoAluno };
-            }
+            if (alIdx !== -1) novoDb[dateKey][aIdx].alunos[alIdx] = { ...novoDb[dateKey][aIdx].alunos[alIdx], ...novoAluno };
           }
           return novoDb;
         });
         setTodasMatriculas(p => p.map(a => a.id === editandoAlunoId ? { ...a, ...novoAluno } : a));
-        setIsModalOpen(false);
-        setEditandoAlunoId(null);
+        setIsModalOpen(false); setEditandoAlunoId(null);
       });
       return;
     }
 
-    // MODO ADIÇÃO NORMAL
     const datasAula = [];
     const semanas = parseInt(novoAluno.recorrencia);
     for (let i = 0; i < semanas; i++) {
@@ -164,7 +153,6 @@ export default function DiarioDeClasse() {
         const novas = result.alunosCadastrados.filter(novo => !prev.some(a => a.id === novo.id));
         return [...prev, ...novas];
       });
-
       setDb(prev => {
         const novoDb = { ...prev };
         result.alunosCadastrados.forEach(al => {
@@ -189,7 +177,47 @@ export default function DiarioDeClasse() {
     });
   };
 
-  /* STREAMING_CHUNK:Lógica de Locação e Conflitos... */
+  const abrirModalMover = (aulaId, aluno) => {
+    setMoveInfo({ alunoId: aluno.id, nome: aluno.nome, fromAulaId: aulaId, toAulaId: '' });
+    setIsMoveModalOpen(true);
+  };
+
+  const handleMoverAluno = (e) => {
+    e.preventDefault();
+    if (!moveInfo.toAulaId || moveInfo.toAulaId === moveInfo.fromAulaId) return;
+
+    performAction('MOVE_ALUNO', { alunoId: moveInfo.alunoId, dataAula: dateKey, newAulaId: moveInfo.toAulaId }, (result) => {
+      setDb(prev => {
+        const novoDb = { ...prev };
+        const dia = novoDb[dateKey];
+
+        const oldAulaIdx = dia.findIndex(a => a.id === moveInfo.fromAulaId);
+        const alunoIdx = dia[oldAulaIdx].alunos.findIndex(al => al.id === moveInfo.alunoId);
+        const alunoMovido = { ...dia[oldAulaIdx].alunos[alunoIdx], status: result.novoStatus };
+        dia[oldAulaIdx].alunos.splice(alunoIdx, 1);
+
+        if (result.promovidoId) {
+          const promoIdx = dia[oldAulaIdx].alunos.findIndex(al => al.id === result.promovidoId);
+          if (promoIdx !== -1) dia[oldAulaIdx].alunos[promoIdx].status = 'Confirmado';
+        }
+
+        const newAulaIdx = dia.findIndex(a => a.id === moveInfo.toAulaId);
+        dia[newAulaIdx].alunos.push(alunoMovido);
+
+        return novoDb;
+      });
+
+      let msg = `${moveInfo.nome} transferido(a) com sucesso!`;
+      let wpp = null;
+      if (result.promovidoId) {
+        msg += ` E a vaga antiga foi preenchida por ${result.promovidoNome}.`;
+        wpp = result.promovidoWhatsapp ? `https://wa.me/55${result.promovidoWhatsapp.replace(/\D/g, '')}?text=Sua%20vaga%20abriu!` : null;
+      }
+      showToast(msg, 'success', wpp);
+      setIsMoveModalOpen(false);
+    });
+  };
+
   const handleSalvarLocacao = (e) => {
     e.preventDefault();
     const getHoraInicio = (str) => {
@@ -213,7 +241,6 @@ export default function DiarioDeClasse() {
     });
   };
 
-  /* STREAMING_CHUNK:Lógica de Botões Rápidos e Exclusões... */
   const togglePresenca = (aId, alId) => performAction('TOGGLE_PRESENCE', { alunoId: alId }, () => {
     setDb(p => ({ ...p, [dateKey]: p[dateKey].map(a => a.id === aId ? { ...a, alunos: a.alunos.map(al => al.id === alId ? { ...al, presente: !al.presente } : al) } : a) }));
     setTodasMatriculas(p => p.map(a => a.id === alId ? { ...a, presente: !a.presente } : a));
@@ -270,7 +297,16 @@ export default function DiarioDeClasse() {
     })
   });
 
-  const getNivelColor = (n) => n === 'Iniciante' ? 'bg-[#91CA05]/20 text-[#012A1A] border-[#91CA05]' : n === 'Intermediário' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' : n === 'Avançado' ? 'bg-red-100 text-red-800 border-red-300' : 'bg-stone-100 text-stone-800';
+  const getNivelColor = (n) => {
+    switch (n) {
+      case 'Categoria A': return 'bg-red-100 text-red-800 border-red-300';
+      case 'Categoria B': return 'bg-orange-100 text-orange-800 border-orange-300';
+      case 'Categoria C': return 'bg-yellow-100 text-yellow-800 border-yellow-300';
+      case 'Categoria D': return 'bg-blue-100 text-blue-800 border-blue-300';
+      case 'FUN': return 'bg-[#91CA05]/20 text-[#012A1A] border-[#91CA05]';
+      default: return 'bg-stone-100 text-stone-800';
+    }
+  };
 
   const gerarRelatorio = () => {
     const agrupado = todasMatriculas.reduce((acc, aluno) => {
@@ -283,7 +319,6 @@ export default function DiarioDeClasse() {
     return Object.values(agrupado).sort((a, b) => a.nome.localeCompare(b.nome));
   };
 
-  /* STREAMING_CHUNK:Renderizando a Interface Gráfica... */
   return (
     <div className="min-h-screen bg-stone-100 font-sans pb-10 relative">
       {/* Toast Notificação */}
@@ -359,7 +394,7 @@ export default function DiarioDeClasse() {
                     <span className="text-sm font-medium text-stone-600 hidden md:inline">Ocupação:</span>
                     <div className={`px-3 py-1 rounded-full text-sm font-bold ${isLotada ? 'bg-red-100 text-red-700' : 'bg-[#012A1A] text-[#91CA05]'}`}>{confirmados.length} / 4</div>
                     {isLotada && (
-                      <button onClick={() => { setModalAulaId(aula.id); setEditandoAlunoId(null); setNovoAluno({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition-colors ml-2">
+                      <button onClick={() => { setModalAulaId(aula.id); setEditandoAlunoId(null); setNovoAluno({ nome: '', whatsapp: '', nivel: 'FUN', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition-colors ml-2">
                         + Fila de Espera
                       </button>
                     )}
@@ -372,6 +407,9 @@ export default function DiarioDeClasse() {
                       {aluno ? (
                         <>
                           <div className="absolute top-4 right-4 flex items-center gap-1">
+                            <button onClick={() => abrirModalMover(aula.id, aluno)} className="p-1.5 text-stone-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Transferir de Horário">
+                              <ArrowRightLeft className="h-4 w-4" />
+                            </button>
                             <button onClick={() => abrirEdicaoAluno(aula.id, aluno)} className="p-1.5 text-stone-400 hover:text-[#012A1A] hover:bg-stone-100 rounded-lg transition-colors" title="Editar Aluno">
                               <Edit2 className="h-4 w-4" />
                             </button>
@@ -380,9 +418,9 @@ export default function DiarioDeClasse() {
                             </button>
                           </div>
 
-                          <div className="flex-1 pr-16">
+                          <div className="flex-1 pr-24">
                             <h3 className="font-bold text-lg text-[#012A1A] mb-3 line-clamp-1 uppercase">{aluno.nome}</h3>
-                            <div className="flex gap-2 mb-4"><span className={`text-xs px-2 py-1 rounded-md font-bold border ${getNivelColor(aluno.nivel)}`}>{aluno.nivel}</span><span className="text-xs px-2 py-1 rounded-md font-bold border bg-stone-100 text-stone-600">{aluno.plano}</span></div>
+                            <div className="flex flex-wrap gap-2 mb-4"><span className={`text-xs px-2 py-1 rounded-md font-bold border ${getNivelColor(aluno.nivel)}`}>{aluno.nivel}</span><span className="text-xs px-2 py-1 rounded-md font-bold border bg-stone-100 text-stone-600">{aluno.plano}</span></div>
                             <div className="flex items-center gap-2 text-stone-500 text-sm mb-4 font-medium"><Phone className="h-4 w-4" />{aluno.whatsapp}</div>
                           </div>
                           <div className="space-y-2 mt-auto">
@@ -393,7 +431,7 @@ export default function DiarioDeClasse() {
                           </div>
                         </>
                       ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-stone-400 gap-3 bg-stone-50/50 rounded-xl border-2 border-dashed border-stone-200 p-4 cursor-pointer hover:border-[#91CA05] hover:text-[#012A1A]" onClick={() => { setModalAulaId(aula.id); setEditandoAlunoId(null); setNovoAluno({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }}>
+                        <div className="flex-1 flex flex-col items-center justify-center text-stone-400 gap-3 bg-stone-50/50 rounded-xl border-2 border-dashed border-stone-200 p-4 cursor-pointer hover:border-[#91CA05] hover:text-[#012A1A]" onClick={() => { setModalAulaId(aula.id); setEditandoAlunoId(null); setNovoAluno({ nome: '', whatsapp: '', nivel: 'FUN', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }}>
                           <div className="bg-white p-3 rounded-full shadow-sm"><UserPlus className="h-8 w-8 current-color" /></div><span className="font-semibold text-center">Vaga Disponível</span>
                         </div>
                       )}
@@ -454,10 +492,42 @@ export default function DiarioDeClasse() {
         </main>
       )}
 
-      {/* MODAIS (Locação, Config e Aluno) */}
-      {isLocacaoModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Locação</h3><button onClick={() => setIsLocacaoModalOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarLocacao} className="p-6 flex flex-col gap-4"><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Horário Reservado</label><input type="text" required placeholder="Ex: 19:00 - 20:30" className="w-full border-2 border-stone-200 rounded-lg p-2.5 font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.horario} onChange={e => setNovaLocacao({ ...novaLocacao, horario: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Nome do Cliente / Turma</label><input type="text" required placeholder="Ex: Galera do João" className="w-full border-2 border-stone-200 rounded-lg p-2.5 uppercase font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.nomeCliente} onChange={e => setNovaLocacao({ ...novaLocacao, nomeCliente: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">WhatsApp de Contato</label><input type="text" placeholder="Ex: 11999999999" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novaLocacao.whatsapp} onChange={e => setNovaLocacao({ ...novaLocacao, whatsapp: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Valor Combinado (R$)</label><input type="number" required placeholder="Ex: 120" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05] text-lg font-bold text-[#012A1A]" value={novaLocacao.valor} onChange={e => setNovaLocacao({ ...novaLocacao, valor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Processando...' : 'Confirmar Reserva'}</button></form></div></div>)}
+      {/* MODAL CONFIG HORÁRIOS */}
       {isConfigOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Turma (Grade Base)</h3><button onClick={() => setIsConfigOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleAdicionarHorario} className="p-6 flex flex-col gap-4"><div><label className="block text-sm font-bold text-[#012A1A] mb-1">Horário</label><input type="text" autoFocus required placeholder="Ex: 10:00 - 11:00" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novoHorario.horario} onChange={e => setNovoHorario({ ...novoHorario, horario: e.target.value })} /></div><div><label className="block text-sm font-bold text-[#012A1A] mb-1">Professor(a)</label><input type="text" required placeholder="Ex: Prof. Carlos" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novoHorario.professor} onChange={e => setNovoHorario({ ...novoHorario, professor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3 bg-[#012A1A] text-[#91CA05] font-bold rounded-xl mt-2 hover:bg-[#014227] transition-colors">{loading ? 'Salvando...' : 'Adicionar à Grade'}</button></form></div></div>)}
-      {isModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-md overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center"><h3 className="font-bold text-[#012A1A] text-lg" style={{ fontFamily: "'Orbitron', sans-serif" }}>{editandoAlunoId ? 'Editar Aluno' : 'Encaixar Aluno'}</h3><button onClick={() => { setIsModalOpen(false); setEditandoAlunoId(null); }} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarAluno} className="p-6 flex flex-col gap-4"><input type="text" autoFocus required placeholder="Nome do Aluno" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05] uppercase" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} /><input type="text" placeholder="WhatsApp (Opcional)" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.whatsapp} onChange={e => setNovoAluno({ ...novoAluno, whatsapp: e.target.value })} /><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-stone-500 mb-1">Nível</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.nivel} onChange={e => setNovoAluno({ ...novoAluno, nivel: e.target.value })}><option>Iniciante</option><option>Intermediário</option><option>Avançado</option></select></div><div><label className="block text-xs font-bold text-stone-500 mb-1">Plano</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.plano} onChange={e => setNovoAluno({ ...novoAluno, plano: e.target.value })}><option>Mensalista</option><option>Avulso</option><option>Gympass</option><option>TotalPass</option></select></div></div>{!editandoAlunoId && <div className="p-3 bg-[#91CA05]/20 border border-[#91CA05] rounded-lg mt-2"><label className="block text-xs font-bold text-[#012A1A] mb-2">REPETIÇÃO AUTOMÁTICA</label><select className="w-full bg-white border border-stone-200 rounded-lg p-2 font-semibold outline-none text-sm" value={novoAluno.recorrencia} onChange={e => setNovoAluno({ ...novoAluno, recorrencia: e.target.value })}><option value="1">Apenas nesta data (Sem repetição)</option><option value="4">Repetir por 1 Mês (4 semanas)</option><option value="12">Repetir por 3 Meses (12 semanas)</option></select></div>}<button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Salvando...' : (editandoAlunoId ? 'Salvar Alterações' : 'Confirmar Vaga')}</button></form></div></div>)}
+
+      {/* MODAL ENCAIXAR / EDITAR ALUNO */}
+      {isModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-md overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center"><h3 className="font-bold text-[#012A1A] text-lg" style={{ fontFamily: "'Orbitron', sans-serif" }}>{editandoAlunoId ? 'Editar Aluno' : 'Encaixar Aluno'}</h3><button onClick={() => { setIsModalOpen(false); setEditandoAlunoId(null); }} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarAluno} className="p-6 flex flex-col gap-4"><input type="text" autoFocus required placeholder="Nome do Aluno" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05] uppercase" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} /><input type="text" placeholder="WhatsApp (Opcional)" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.whatsapp} onChange={e => setNovoAluno({ ...novoAluno, whatsapp: e.target.value })} /><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-stone-500 mb-1">Categoria</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.nivel} onChange={e => setNovoAluno({ ...novoAluno, nivel: e.target.value })}><option>FUN</option><option>Categoria D</option><option>Categoria C</option><option>Categoria B</option><option>Categoria A</option></select></div><div><label className="block text-xs font-bold text-stone-500 mb-1">Plano</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.plano} onChange={e => setNovoAluno({ ...novoAluno, plano: e.target.value })}><option>Mensalista</option><option>Avulso</option><option>Gympass</option><option>TotalPass</option></select></div></div>{!editandoAlunoId && <div className="p-3 bg-[#91CA05]/20 border border-[#91CA05] rounded-lg mt-2"><label className="block text-xs font-bold text-[#012A1A] mb-2">REPETIÇÃO AUTOMÁTICA</label><select className="w-full bg-white border border-stone-200 rounded-lg p-2 font-semibold outline-none text-sm" value={novoAluno.recorrencia} onChange={e => setNovoAluno({ ...novoAluno, recorrencia: e.target.value })}><option value="1">Apenas nesta data (Sem repetição)</option><option value="4">Repetir por 1 Mês (4 semanas)</option><option value="12">Repetir por 3 Meses (12 semanas)</option></select></div>}<button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Salvando...' : (editandoAlunoId ? 'Salvar Alterações' : 'Confirmar Vaga')}</button></form></div></div>)}
+
+      {/* MODAL MOVER ALUNO (KANBAN) */}
+      {isMoveModalOpen && (
+        <div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-blue-500">
+            <div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center">
+              <h3 className="font-bold text-[#012A1A] text-lg flex items-center gap-2" style={{ fontFamily: "'Orbitron', sans-serif" }}>
+                <ArrowRightLeft className="h-5 w-5 text-blue-500" /> Transferir
+              </h3>
+              <button onClick={() => setIsMoveModalOpen(false)} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button>
+            </div>
+            <form onSubmit={handleMoverAluno} className="p-6 flex flex-col gap-4">
+              <p className="text-sm font-medium text-stone-600 mb-2">Para qual horário você deseja mover <strong>{moveInfo.nome}</strong> hoje?</p>
+              <select required className="w-full border-2 border-stone-200 rounded-lg p-3 font-bold outline-none focus:border-blue-500 text-[#012A1A]" value={moveInfo.toAulaId} onChange={e => setMoveInfo({ ...moveInfo, toAulaId: e.target.value })}>
+                <option value="" disabled>Selecione a nova turma...</option>
+                {aulasDoDia.filter(a => a.id !== moveInfo.fromAulaId).map(aula => (
+                  <option key={aula.id} value={aula.id}>{aula.horario} ({aula.professor})</option>
+                ))}
+              </select>
+              <button type="submit" disabled={loading || !moveInfo.toAulaId} className="w-full py-3.5 bg-blue-500 text-white font-bold rounded-xl mt-2 hover:bg-blue-600 transition-colors shadow-md disabled:bg-stone-300">
+                {loading ? 'Transferindo...' : 'Confirmar Transferência'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL RESERVA LOCAÇÃO */}
+      {isLocacaoModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Locação</h3><button onClick={() => setIsLocacaoModalOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarLocacao} className="p-6 flex flex-col gap-4"><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Horário Reservado</label><input type="text" required placeholder="Ex: 09:00 - 10:30" className="w-full border-2 border-stone-200 rounded-lg p-2.5 font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.horario} onChange={e => setNovaLocacao({ ...novaLocacao, horario: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Nome do Cliente / Turma</label><input type="text" required placeholder="Ex: Galera do João" className="w-full border-2 border-stone-200 rounded-lg p-2.5 uppercase font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.nomeCliente} onChange={e => setNovaLocacao({ ...novaLocacao, nomeCliente: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">WhatsApp de Contato</label><input type="text" placeholder="Ex: 11999999999" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novaLocacao.whatsapp} onChange={e => setNovaLocacao({ ...novaLocacao, whatsapp: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Valor Combinado (R$)</label><input type="number" required placeholder="Ex: 120" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05] text-lg font-bold text-[#012A1A]" value={novaLocacao.valor} onChange={e => setNovaLocacao({ ...novaLocacao, valor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Processando...' : 'Confirmar Reserva'}</button></form></div></div>)}
+
+      {/* MODAL DE CONFIRMAÇÃO GENÉRICO */}
       {confirmDialog.show && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl p-6 text-center max-w-sm w-full border-t-4 border-red-500"><h3 className="font-bold text-lg mb-2 text-[#012A1A]" style={{ fontFamily: "'Orbitron', sans-serif" }}>{confirmDialog.title}</h3><p className="text-stone-500 font-medium text-sm mb-6">{confirmDialog.message}</p><div className="flex gap-3"><button onClick={() => setConfirmDialog({ show: false })} className="flex-1 py-2.5 bg-stone-100 font-bold text-stone-600 rounded-xl hover:bg-stone-200">Cancelar</button><button onClick={confirmDialog.onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-md">Sim, remover</button></div></div></div>)}
     </div>
   );
