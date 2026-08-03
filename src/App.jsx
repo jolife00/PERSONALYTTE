@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Calendar, Trash2,
   UserPlus, X, Info, Settings, LayoutDashboard,
   Users, Key, Banknote, Edit2, ArrowRightLeft,
-  Search, Trophy, Activity
+  Search, Activity
 } from 'lucide-react';
 
 // ============================================================================
@@ -40,7 +40,7 @@ export default function DiarioDeClasse() {
   const [novaLocacao, setNovaLocacao] = useState({ horario: '', nomeCliente: '', whatsapp: '', valor: '' });
   const [moveInfo, setMoveInfo] = useState({ alunoId: null, nome: '', fromAulaId: null, toAulaId: '' });
 
-  // Controle da Busca no Painel de Alunos
+  // Busca do Painel
   const [buscaAluno, setBuscaAluno] = useState('');
 
   const [toast, setToast] = useState({ show: false, message: '', type: 'info', actionLink: null });
@@ -55,7 +55,7 @@ export default function DiarioDeClasse() {
     setTimeout(() => setToast({ show: false, message: '', type: 'info', actionLink: null }), 6000);
   };
 
-  /* STREAMING_CHUNK:Carregando os dados da base... */
+  /* STREAMING_CHUNK:Carregando Dados... */
   useEffect(() => {
     if (!URL_DO_GOOGLE_APPS_SCRIPT || URL_DO_GOOGLE_APPS_SCRIPT === 'COLE_AQUI_A_SUA_URL') return;
 
@@ -106,7 +106,7 @@ export default function DiarioDeClasse() {
     finally { setLoading(false); }
   };
 
-  /* STREAMING_CHUNK:Lógicas de Aulas e Alunos... */
+  /* STREAMING_CHUNK:Ações de Aulas e Alunos... */
   const handleAdicionarHorario = (e) => {
     e.preventDefault();
     performAction('ADD_HORARIO', novoHorario, (result) => {
@@ -310,41 +310,51 @@ export default function DiarioDeClasse() {
     }
   };
 
-  /* STREAMING_CHUNK:Processando o Painel de Alunos... */
+  /* STREAMING_CHUNK:Processando Painel de Alunos... */
   const relatorioAlunos = useMemo(() => {
+    if (!todasMatriculas) return [];
+
     const agrupado = todasMatriculas.reduce((acc, aluno) => {
-      const nomeKey = aluno.nome.toLowerCase().trim();
+      // PREVENÇÃO DE ERRO: Garante que o nome existe antes de usar toLowerCase
+      const nomeOriginal = aluno.nome ? String(aluno.nome) : 'Atleta Sem Nome';
+      const nomeKey = nomeOriginal.toLowerCase().trim();
+
       if (!acc[nomeKey]) {
         acc[nomeKey] = {
-          nome: aluno.nome,
-          whatsapp: aluno.whatsapp,
-          nivel: aluno.nivel,
-          plano: aluno.plano, // Salva o plano mais recente
+          nome: nomeOriginal,
+          whatsapp: aluno.whatsapp || '',
+          nivel: aluno.nivel || 'FUN',
+          plano: aluno.plano || 'Avulso',
           totalAulas: 0,
           presencas: 0,
           checkins: 0
         };
       }
+
       acc[nomeKey].totalAulas++;
       if (aluno.presente) acc[nomeKey].presencas++;
       if (aluno.parceiroCheckin) acc[nomeKey].checkins++;
-      // Mantém o nível e plano atualizados com o registro mais recente
-      acc[nomeKey].nivel = aluno.nivel;
-      acc[nomeKey].plano = aluno.plano;
+
+      // Atualiza com o plano e nível da matrícula mais recente
+      acc[nomeKey].nivel = aluno.nivel || acc[nomeKey].nivel;
+      acc[nomeKey].plano = aluno.plano || acc[nomeKey].plano;
+
       return acc;
     }, {});
 
-    // Converte para array e ordena por nome
     let lista = Object.values(agrupado).sort((a, b) => a.nome.localeCompare(b.nome));
 
     // Filtra pela busca se houver
-    if (buscaAluno.trim() !== '') {
-      lista = lista.filter(aluno => aluno.nome.toLowerCase().includes(buscaAluno.toLowerCase()));
+    if (buscaAluno && buscaAluno.trim() !== '') {
+      const termo = buscaAluno.toLowerCase().trim();
+      lista = lista.filter(aluno => aluno.nome.toLowerCase().includes(termo));
     }
 
     return lista;
   }, [todasMatriculas, buscaAluno]);
 
+
+  /* STREAMING_CHUNK:Renderizando a Interface... */
   return (
     <div className="min-h-screen bg-stone-100 font-sans pb-10 relative">
       {toast.show && (
@@ -392,7 +402,7 @@ export default function DiarioDeClasse() {
         </div>
       </div>
 
-      {/* ------------------ ABA DIÁRIO ------------------ */}
+      {/* ABA DIÁRIO */}
       {activeTab === 'diario' && (
         <main className="max-w-6xl mx-auto p-4 md:p-6 flex flex-col gap-6 animate-in fade-in">
           {gradeMestre.length === 0 && !loading && <div className="text-center p-10 bg-white rounded-2xl shadow-sm"><p className="text-stone-500 font-medium">Nenhuma aula. Clique na Engrenagem acima para criar a grade de aulas.</p></div>}
@@ -483,7 +493,7 @@ export default function DiarioDeClasse() {
         </main>
       )}
 
-      {/* ------------------ ABA LOCAÇÃO ------------------ */}
+      {/* ABA LOCAÇÃO */}
       {activeTab === 'locacao' && (
         <main className="max-w-6xl mx-auto p-4 md:p-6 flex flex-col gap-6 animate-in fade-in">
           <div className="flex justify-between items-center">
@@ -507,18 +517,16 @@ export default function DiarioDeClasse() {
         </main>
       )}
 
-      {/* ------------------ ABA PAINEL DE ALUNOS (DASHBOARD) ------------------ */}
+      {/* ABA PAINEL DE ALUNOS (DASHBOARD) */}
       {activeTab === 'painel' && (
         <main className="max-w-6xl mx-auto p-4 md:p-6 animate-in fade-in">
 
-          {/* Header do Painel */}
           <div className="bg-[#012A1A] rounded-t-2xl p-6 md:p-8 flex flex-col md:flex-row justify-between items-center gap-6 shadow-md border-b-4 border-[#91CA05]">
             <div className="text-center md:text-left">
               <h2 className="text-2xl md:text-3xl font-bold text-[#91CA05] mb-2" style={{ fontFamily: "'Orbitron', sans-serif" }}>Base de Atletas</h2>
               <p className="text-gray-300 text-sm">Gerencie o histórico e o desempenho de todos os alunos da Arena.</p>
             </div>
 
-            {/* Barra de Busca */}
             <div className="relative w-full md:w-80">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <Search className="h-5 w-5 text-stone-400" />
@@ -538,7 +546,6 @@ export default function DiarioDeClasse() {
             </div>
           </div>
 
-          {/* Grid de Cartões de Alunos */}
           <div className="bg-white p-6 rounded-b-2xl shadow-sm border border-t-0 border-stone-200 min-h-[400px]">
             {relatorioAlunos.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-stone-400">
@@ -548,7 +555,6 @@ export default function DiarioDeClasse() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {relatorioAlunos.map((aluno, i) => {
-                  // Calcula o percentual de frequência
                   const percentual = aluno.totalAulas > 0 ? Math.round((aluno.presencas / aluno.totalAulas) * 100) : 0;
 
                   return (
@@ -600,15 +606,13 @@ export default function DiarioDeClasse() {
         </main>
       )}
 
-      {/* ---------------- MODAIS ---------------- */}
+      {/* MODAIS (Locação, Config, Aluno, Move) */}
       {isLocacaoModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Locação</h3><button onClick={() => setIsLocacaoModalOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarLocacao} className="p-6 flex flex-col gap-4"><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Horário Reservado</label><input type="text" required placeholder="Ex: 09:00 - 10:30" className="w-full border-2 border-stone-200 rounded-lg p-2.5 font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.horario} onChange={e => setNovaLocacao({ ...novaLocacao, horario: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Nome do Cliente / Turma</label><input type="text" required placeholder="Ex: Galera do João" className="w-full border-2 border-stone-200 rounded-lg p-2.5 uppercase font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.nomeCliente} onChange={e => setNovaLocacao({ ...novaLocacao, nomeCliente: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">WhatsApp de Contato</label><input type="text" placeholder="Ex: 11999999999" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novaLocacao.whatsapp} onChange={e => setNovaLocacao({ ...novaLocacao, whatsapp: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Valor Combinado (R$)</label><input type="number" required placeholder="Ex: 120" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05] text-lg font-bold text-[#012A1A]" value={novaLocacao.valor} onChange={e => setNovaLocacao({ ...novaLocacao, valor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Processando...' : 'Confirmar Reserva'}</button></form></div></div>)}
       {isConfigOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Turma (Grade Base)</h3><button onClick={() => setIsConfigOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleAdicionarHorario} className="p-6 flex flex-col gap-4"><div><label className="block text-sm font-bold text-[#012A1A] mb-1">Horário</label><input type="text" autoFocus required placeholder="Ex: 10:00 - 11:00" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novoHorario.horario} onChange={e => setNovoHorario({ ...novoHorario, horario: e.target.value })} /></div><div><label className="block text-sm font-bold text-[#012A1A] mb-1">Professor(a)</label><input type="text" required placeholder="Ex: Prof. Carlos" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novoHorario.professor} onChange={e => setNovoHorario({ ...novoHorario, professor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3 bg-[#012A1A] text-[#91CA05] font-bold rounded-xl mt-2 hover:bg-[#014227] transition-colors">{loading ? 'Salvando...' : 'Adicionar à Grade'}</button></form></div></div>)}
-
       {isModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-md overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center"><h3 className="font-bold text-[#012A1A] text-lg" style={{ fontFamily: "'Orbitron', sans-serif" }}>{editandoAlunoId ? 'Editar Aluno' : 'Encaixar Aluno'}</h3><button onClick={() => { setIsModalOpen(false); setEditandoAlunoId(null); }} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarAluno} className="p-6 flex flex-col gap-4"><input type="text" autoFocus required placeholder="Nome do Aluno" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05] uppercase" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} /><input type="text" placeholder="WhatsApp (Opcional)" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.whatsapp} onChange={e => setNovoAluno({ ...novoAluno, whatsapp: e.target.value })} /><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-stone-500 mb-1">Categoria</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.nivel} onChange={e => setNovoAluno({ ...novoAluno, nivel: e.target.value })}><option>FUN</option><option>Categoria D</option><option>Categoria C</option><option>Categoria B</option><option>Categoria A</option></select></div><div><label className="block text-xs font-bold text-stone-500 mb-1">Plano</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.plano} onChange={e => setNovoAluno({ ...novoAluno, plano: e.target.value })}><option>Mensalista</option><option>Avulso</option><option>Gympass</option><option>TotalPass</option></select></div></div>{!editandoAlunoId && <div className="p-3 bg-[#91CA05]/20 border border-[#91CA05] rounded-lg mt-2"><label className="block text-xs font-bold text-[#012A1A] mb-2">REPETIÇÃO AUTOMÁTICA</label><select className="w-full bg-white border border-stone-200 rounded-lg p-2 font-semibold outline-none text-sm" value={novoAluno.recorrencia} onChange={e => setNovoAluno({ ...novoAluno, recorrencia: e.target.value })}><option value="1">Apenas nesta data (Sem repetição)</option><option value="4">Repetir por 1 Mês (4 semanas)</option><option value="12">Repetir por 3 Meses (12 semanas)</option></select></div>}<button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Salvando...' : (editandoAlunoId ? 'Salvar Alterações' : 'Confirmar Vaga')}</button></form></div></div>)}
-
       {isMoveModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-blue-500"><div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center"><h3 className="font-bold text-[#012A1A] text-lg flex items-center gap-2" style={{ fontFamily: "'Orbitron', sans-serif" }}><ArrowRightLeft className="h-5 w-5 text-blue-500" /> Transferir</h3><button onClick={() => setIsMoveModalOpen(false)} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button></div><form onSubmit={handleMoverAluno} className="p-6 flex flex-col gap-4"><p className="text-sm font-medium text-stone-600 mb-2">Para qual horário você deseja mover <strong>{moveInfo.nome}</strong> hoje?</p><select required className="w-full border-2 border-stone-200 rounded-lg p-3 font-bold outline-none focus:border-blue-500 text-[#012A1A]" value={moveInfo.toAulaId} onChange={e => setMoveInfo({ ...moveInfo, toAulaId: e.target.value })}><option value="" disabled>Selecione a nova turma...</option>{aulasDoDia.filter(a => a.id !== moveInfo.fromAulaId).map(aula => (<option key={aula.id} value={aula.id}>{aula.horario} ({aula.professor})</option>))}</select><button type="submit" disabled={loading || !moveInfo.toAulaId} className="w-full py-3.5 bg-blue-500 text-white font-bold rounded-xl mt-2 hover:bg-blue-600 transition-colors shadow-md disabled:bg-stone-300">{loading ? 'Transferindo...' : 'Confirmar Transferência'}</button></form></div></div>)}
-
       {confirmDialog.show && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl p-6 text-center max-w-sm w-full border-t-4 border-red-500"><h3 className="font-bold text-lg mb-2 text-[#012A1A]" style={{ fontFamily: "'Orbitron', sans-serif" }}>{confirmDialog.title}</h3><p className="text-stone-500 font-medium text-sm mb-6">{confirmDialog.message}</p><div className="flex gap-3"><button onClick={() => setConfirmDialog({ show: false })} className="flex-1 py-2.5 bg-stone-100 font-bold text-stone-600 rounded-xl hover:bg-stone-200">Cancelar</button><button onClick={confirmDialog.onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-md">Sim, remover</button></div></div></div>)}
     </div>
   );
 }
+
