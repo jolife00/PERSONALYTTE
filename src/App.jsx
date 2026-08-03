@@ -3,7 +3,7 @@ import {
   CheckCircle, Clock, Phone, AlertCircle,
   ChevronLeft, ChevronRight, Calendar, Trash2,
   UserPlus, X, Info, Settings, LayoutDashboard,
-  Users, Key, Banknote
+  Users, Key, Banknote, Edit2
 } from 'lucide-react';
 
 // ============================================================================
@@ -32,6 +32,7 @@ export default function DiarioDeClasse() {
   const [isLocacaoModalOpen, setIsLocacaoModalOpen] = useState(false);
 
   const [modalAulaId, setModalAulaId] = useState(null);
+  const [editandoAlunoId, setEditandoAlunoId] = useState(null);
   const [novoAluno, setNovoAluno] = useState({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' });
   const [novoHorario, setNovoHorario] = useState({ horario: '', professor: '' });
   const [novaLocacao, setNovaLocacao] = useState({ horario: '', nomeCliente: '', whatsapp: '', valor: '' });
@@ -48,8 +49,9 @@ export default function DiarioDeClasse() {
     setTimeout(() => setToast({ show: false, message: '', type: 'info', actionLink: null }), 6000);
   };
 
+  /* STREAMING_CHUNK:Buscando dados da planilha... */
   useEffect(() => {
-    if (!URL_DO_GOOGLE_APPS_SCRIPT || URL_DO_GOOGLE_APPS_SCRIPT === 'COLE_A_SUA_URL_AQUI') return;
+    if (!URL_DO_GOOGLE_APPS_SCRIPT || URL_DO_GOOGLE_APPS_SCRIPT === 'COLE_AQUI_A_SUA_URL') return;
 
     const carregarDados = async () => {
       setLoading(true);
@@ -98,6 +100,7 @@ export default function DiarioDeClasse() {
     finally { setLoading(false); }
   };
 
+  /* STREAMING_CHUNK:Lógica de Aulas e Alunos... */
   const handleAdicionarHorario = (e) => {
     e.preventDefault();
     performAction('ADD_HORARIO', novoHorario, (result) => {
@@ -112,8 +115,44 @@ export default function DiarioDeClasse() {
     });
   };
 
+  const abrirEdicaoAluno = (aulaId, aluno) => {
+    setModalAulaId(aulaId);
+    setEditandoAlunoId(aluno.id);
+    setNovoAluno({
+      nome: aluno.nome,
+      whatsapp: aluno.whatsapp || '',
+      nivel: aluno.nivel,
+      plano: aluno.plano,
+      recorrencia: '1'
+    });
+    setIsModalOpen(true);
+  };
+
   const handleSalvarAluno = (e) => {
     e.preventDefault();
+
+    // MODO EDIÇÃO
+    if (editandoAlunoId) {
+      performAction('EDIT_ALUNO', { alunoId: editandoAlunoId, aluno: novoAluno }, () => {
+        setDb(prev => {
+          const novoDb = { ...prev };
+          const aIdx = novoDb[dateKey].findIndex(a => a.id === modalAulaId);
+          if (aIdx !== -1) {
+            const alIdx = novoDb[dateKey][aIdx].alunos.findIndex(al => al.id === editandoAlunoId);
+            if (alIdx !== -1) {
+              novoDb[dateKey][aIdx].alunos[alIdx] = { ...novoDb[dateKey][aIdx].alunos[alIdx], ...novoAluno };
+            }
+          }
+          return novoDb;
+        });
+        setTodasMatriculas(p => p.map(a => a.id === editandoAlunoId ? { ...a, ...novoAluno } : a));
+        setIsModalOpen(false);
+        setEditandoAlunoId(null);
+      });
+      return;
+    }
+
+    // MODO ADIÇÃO NORMAL
     const datasAula = [];
     const semanas = parseInt(novoAluno.recorrencia);
     for (let i = 0; i < semanas; i++) {
@@ -150,35 +189,20 @@ export default function DiarioDeClasse() {
     });
   };
 
-  // =========================================================================
-  // DETECTOR DE CONFLITOS INTELIGENTE
-  // =========================================================================
+  /* STREAMING_CHUNK:Lógica de Locação e Conflitos... */
   const handleSalvarLocacao = (e) => {
     e.preventDefault();
-
-    // Função auxiliar para extrair APENAS a hora inicial. Ex: "09:00 - 10:00" -> 9
     const getHoraInicio = (str) => {
       const match = str.match(/\d{2}/);
       return match ? parseInt(match[0], 10) : null;
     };
-
     const horaInicioSolicitada = getHoraInicio(novaLocacao.horario);
 
     if (horaInicioSolicitada !== null) {
-      // 1. Verifica conflito com AULAS
-      const conflitoAula = aulasDoDia.find(aula => {
-        const horaInicioAula = getHoraInicio(aula.horario);
-        return horaInicioAula === horaInicioSolicitada;
-      });
-
+      const conflitoAula = aulasDoDia.find(aula => getHoraInicio(aula.horario) === horaInicioSolicitada);
       if (conflitoAula) return showToast(`Conflito! Já existe uma AULA (${conflitoAula.horario}) na quadra.`, 'error');
 
-      // 2. Verifica conflito com LOCAÇÕES
-      const conflitoLocacao = locacoesDoDia.find(loc => {
-        const horaInicioLoc = getHoraInicio(loc.horario);
-        return horaInicioLoc === horaInicioSolicitada;
-      });
-
+      const conflitoLocacao = locacoesDoDia.find(loc => getHoraInicio(loc.horario) === horaInicioSolicitada);
       if (conflitoLocacao) return showToast(`Conflito! A quadra já está ALUGADA neste horário.`, 'error');
     }
 
@@ -189,6 +213,7 @@ export default function DiarioDeClasse() {
     });
   };
 
+  /* STREAMING_CHUNK:Lógica de Botões Rápidos e Exclusões... */
   const togglePresenca = (aId, alId) => performAction('TOGGLE_PRESENCE', { alunoId: alId }, () => {
     setDb(p => ({ ...p, [dateKey]: p[dateKey].map(a => a.id === aId ? { ...a, alunos: a.alunos.map(al => al.id === alId ? { ...al, presente: !al.presente } : al) } : a) }));
     setTodasMatriculas(p => p.map(a => a.id === alId ? { ...a, presente: !a.presente } : a));
@@ -258,6 +283,7 @@ export default function DiarioDeClasse() {
     return Object.values(agrupado).sort((a, b) => a.nome.localeCompare(b.nome));
   };
 
+  /* STREAMING_CHUNK:Renderizando a Interface Gráfica... */
   return (
     <div className="min-h-screen bg-stone-100 font-sans pb-10 relative">
       {/* Toast Notificação */}
@@ -333,7 +359,7 @@ export default function DiarioDeClasse() {
                     <span className="text-sm font-medium text-stone-600 hidden md:inline">Ocupação:</span>
                     <div className={`px-3 py-1 rounded-full text-sm font-bold ${isLotada ? 'bg-red-100 text-red-700' : 'bg-[#012A1A] text-[#91CA05]'}`}>{confirmados.length} / 4</div>
                     {isLotada && (
-                      <button onClick={() => { setModalAulaId(aula.id); setNovoAluno({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition-colors ml-2">
+                      <button onClick={() => { setModalAulaId(aula.id); setEditandoAlunoId(null); setNovoAluno({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }} className="bg-orange-500 hover:bg-orange-600 text-white text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm transition-colors ml-2">
                         + Fila de Espera
                       </button>
                     )}
@@ -345,8 +371,16 @@ export default function DiarioDeClasse() {
                     <div key={aluno ? aluno.id : `empty-${aula.id}-${idx}`} className="p-4 flex flex-col h-full min-h-[260px] relative group">
                       {aluno ? (
                         <>
-                          <button onClick={() => pedirRemocaoAluno(aula.id, aluno.id, aluno.nome)} className="absolute top-4 right-4 p-1.5 text-stone-300 hover:text-red-500 rounded-lg"><Trash2 className="h-4 w-4" /></button>
-                          <div className="flex-1 pr-6">
+                          <div className="absolute top-4 right-4 flex items-center gap-1">
+                            <button onClick={() => abrirEdicaoAluno(aula.id, aluno)} className="p-1.5 text-stone-400 hover:text-[#012A1A] hover:bg-stone-100 rounded-lg transition-colors" title="Editar Aluno">
+                              <Edit2 className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => pedirRemocaoAluno(aula.id, aluno.id, aluno.nome)} className="p-1.5 text-stone-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" title="Remover Aluno">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+
+                          <div className="flex-1 pr-16">
                             <h3 className="font-bold text-lg text-[#012A1A] mb-3 line-clamp-1 uppercase">{aluno.nome}</h3>
                             <div className="flex gap-2 mb-4"><span className={`text-xs px-2 py-1 rounded-md font-bold border ${getNivelColor(aluno.nivel)}`}>{aluno.nivel}</span><span className="text-xs px-2 py-1 rounded-md font-bold border bg-stone-100 text-stone-600">{aluno.plano}</span></div>
                             <div className="flex items-center gap-2 text-stone-500 text-sm mb-4 font-medium"><Phone className="h-4 w-4" />{aluno.whatsapp}</div>
@@ -359,7 +393,7 @@ export default function DiarioDeClasse() {
                           </div>
                         </>
                       ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center text-stone-400 gap-3 bg-stone-50/50 rounded-xl border-2 border-dashed border-stone-200 p-4 cursor-pointer hover:border-[#91CA05] hover:text-[#012A1A]" onClick={() => { setModalAulaId(aula.id); setNovoAluno({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }}>
+                        <div className="flex-1 flex flex-col items-center justify-center text-stone-400 gap-3 bg-stone-50/50 rounded-xl border-2 border-dashed border-stone-200 p-4 cursor-pointer hover:border-[#91CA05] hover:text-[#012A1A]" onClick={() => { setModalAulaId(aula.id); setEditandoAlunoId(null); setNovoAluno({ nome: '', whatsapp: '', nivel: 'Iniciante', plano: 'Avulso', recorrencia: '1' }); setIsModalOpen(true); }}>
                           <div className="bg-white p-3 rounded-full shadow-sm"><UserPlus className="h-8 w-8 current-color" /></div><span className="font-semibold text-center">Vaga Disponível</span>
                         </div>
                       )}
@@ -415,15 +449,15 @@ export default function DiarioDeClasse() {
         <main className="max-w-6xl mx-auto p-4 md:p-6">
           <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
             <div className="p-6 bg-[#012A1A] text-white"><h2 className="text-xl font-bold text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Performance dos Alunos</h2></div>
-            <div className="overflow-x-auto"><table className="w-full text-left border-collapse"><thead><tr className="bg-stone-100 text-stone-600 border-b border-stone-200"><th className="p-4 font-bold">Aluno</th><th className="p-4 font-bold text-center">Aulas Agendadas</th><th className="p-4 font-bold text-center">Presenças</th><th className="p-4 font-bold text-center">Check-ins</th></tr></thead><tbody className="divide-y divide-stone-200">{gerarRelatorio().map((al, i) => (<tr key={i} className="hover:bg-stone-50"><td className="p-4"><div className="font-bold text-[#012A1A] uppercase">{al.nome}</div><div className="text-sm text-stone-500">{al.whatsapp}</div></td><td className="p-4 text-center font-semibold text-stone-600">{al.totalAulas}</td><td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-sm font-bold ${al.presencas > 0 ? 'bg-[#91CA05] text-[#012A1A]' : 'bg-stone-200 text-stone-600'}`}>{al.presencas}</span></td><td className="p-4 text-center font-semibold text-purple-600">{al.checkins}</td></tr>))}</tbody></table></div>
+            <div className="overflow-x-auto"><table className="w-full text-left border-collapse"><thead><tr className="bg-stone-100 text-stone-600 border-b border-stone-200"><th className="p-4 font-bold">Aluno</th><th className="p-4 font-bold text-center">Aulas Agendadas</th><th className="p-4 font-bold text-center">Presenças</th><th className="p-4 font-bold text-center">Check-ins Gympass</th></tr></thead><tbody className="divide-y divide-stone-200">{gerarRelatorio().map((al, i) => (<tr key={i} className="hover:bg-stone-50"><td className="p-4"><div className="font-bold text-[#012A1A] uppercase">{al.nome}</div><div className="text-sm text-stone-500">{al.whatsapp}</div></td><td className="p-4 text-center font-semibold text-stone-600">{al.totalAulas}</td><td className="p-4 text-center"><span className={`px-3 py-1 rounded-full text-sm font-bold ${al.presencas > 0 ? 'bg-[#91CA05] text-[#012A1A]' : 'bg-stone-200 text-stone-600'}`}>{al.presencas}</span></td><td className="p-4 text-center font-semibold text-purple-600">{al.checkins}</td></tr>))}</tbody></table></div>
           </div>
         </main>
       )}
 
       {/* MODAIS (Locação, Config e Aluno) */}
-      {isLocacaoModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Locação</h3><button onClick={() => setIsLocacaoModalOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarLocacao} className="p-6 flex flex-col gap-4"><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Horário Reservado</label><input type="text" required placeholder="Ex: 09:00 - 10:30" className="w-full border-2 border-stone-200 rounded-lg p-2.5 font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.horario} onChange={e => setNovaLocacao({ ...novaLocacao, horario: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Nome do Cliente / Turma</label><input type="text" required placeholder="Ex: Galera do João" className="w-full border-2 border-stone-200 rounded-lg p-2.5 uppercase font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.nomeCliente} onChange={e => setNovaLocacao({ ...novaLocacao, nomeCliente: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">WhatsApp de Contato</label><input type="text" placeholder="Ex: 11999999999" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novaLocacao.whatsapp} onChange={e => setNovaLocacao({ ...novaLocacao, whatsapp: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Valor Combinado (R$)</label><input type="number" required placeholder="Ex: 120" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05] text-lg font-bold text-[#012A1A]" value={novaLocacao.valor} onChange={e => setNovaLocacao({ ...novaLocacao, valor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Processando...' : 'Confirmar Reserva'}</button></form></div></div>)}
+      {isLocacaoModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Locação</h3><button onClick={() => setIsLocacaoModalOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarLocacao} className="p-6 flex flex-col gap-4"><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Horário Reservado</label><input type="text" required placeholder="Ex: 19:00 - 20:30" className="w-full border-2 border-stone-200 rounded-lg p-2.5 font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.horario} onChange={e => setNovaLocacao({ ...novaLocacao, horario: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Nome do Cliente / Turma</label><input type="text" required placeholder="Ex: Galera do João" className="w-full border-2 border-stone-200 rounded-lg p-2.5 uppercase font-bold outline-none focus:border-[#91CA05]" value={novaLocacao.nomeCliente} onChange={e => setNovaLocacao({ ...novaLocacao, nomeCliente: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">WhatsApp de Contato</label><input type="text" placeholder="Ex: 11999999999" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novaLocacao.whatsapp} onChange={e => setNovaLocacao({ ...novaLocacao, whatsapp: e.target.value })} /></div><div><label className="block text-xs font-bold text-[#012A1A] mb-1">Valor Combinado (R$)</label><input type="number" required placeholder="Ex: 120" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05] text-lg font-bold text-[#012A1A]" value={novaLocacao.valor} onChange={e => setNovaLocacao({ ...novaLocacao, valor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Processando...' : 'Confirmar Reserva'}</button></form></div></div>)}
       {isConfigOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-[#012A1A] text-white p-4 flex justify-between items-center"><h3 className="font-bold text-lg text-[#91CA05]" style={{ fontFamily: "'Orbitron', sans-serif" }}>Nova Turma (Grade Base)</h3><button onClick={() => setIsConfigOpen(false)} className="p-1 hover:text-[#91CA05]"><X className="h-5 w-5" /></button></div><form onSubmit={handleAdicionarHorario} className="p-6 flex flex-col gap-4"><div><label className="block text-sm font-bold text-[#012A1A] mb-1">Horário</label><input type="text" autoFocus required placeholder="Ex: 10:00 - 11:00" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novoHorario.horario} onChange={e => setNovoHorario({ ...novoHorario, horario: e.target.value })} /></div><div><label className="block text-sm font-bold text-[#012A1A] mb-1">Professor(a)</label><input type="text" required placeholder="Ex: Prof. Carlos" className="w-full border-2 border-stone-200 rounded-lg p-2.5 outline-none focus:border-[#91CA05]" value={novoHorario.professor} onChange={e => setNovoHorario({ ...novoHorario, professor: e.target.value })} /></div><button type="submit" disabled={loading} className="w-full py-3 bg-[#012A1A] text-[#91CA05] font-bold rounded-xl mt-2 hover:bg-[#014227] transition-colors">{loading ? 'Salvando...' : 'Adicionar à Grade'}</button></form></div></div>)}
-      {isModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-md overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center"><h3 className="font-bold text-[#012A1A] text-lg" style={{ fontFamily: "'Orbitron', sans-serif" }}>Encaixar Aluno</h3><button onClick={() => setIsModalOpen(false)} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarAluno} className="p-6 flex flex-col gap-4"><input type="text" autoFocus required placeholder="Nome do Aluno" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05] uppercase" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} /><input type="text" placeholder="WhatsApp (Opcional)" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.whatsapp} onChange={e => setNovoAluno({ ...novoAluno, whatsapp: e.target.value })} /><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-stone-500 mb-1">Nível</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.nivel} onChange={e => setNovoAluno({ ...novoAluno, nivel: e.target.value })}><option>Iniciante</option><option>Intermediário</option><option>Avançado</option></select></div><div><label className="block text-xs font-bold text-stone-500 mb-1">Plano</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.plano} onChange={e => setNovoAluno({ ...novoAluno, plano: e.target.value })}><option>Mensalista</option><option>Avulso</option><option>Gympass</option><option>TotalPass</option></select></div></div><div className="p-3 bg-[#91CA05]/20 border border-[#91CA05] rounded-lg mt-2"><label className="block text-xs font-bold text-[#012A1A] mb-2">REPETIÇÃO AUTOMÁTICA</label><select className="w-full bg-white border border-stone-200 rounded-lg p-2 font-semibold outline-none text-sm" value={novoAluno.recorrencia} onChange={e => setNovoAluno({ ...novoAluno, recorrencia: e.target.value })}><option value="1">Apenas nesta data (Sem repetição)</option><option value="4">Repetir por 1 Mês (4 semanas)</option><option value="12">Repetir por 3 Meses (12 semanas)</option></select></div><button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Salvando...' : 'Confirmar Vaga'}</button></form></div></div>)}
+      {isModalOpen && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl w-full max-w-md overflow-hidden border-t-4 border-[#91CA05]"><div className="bg-stone-50 border-b border-stone-200 p-4 flex justify-between items-center"><h3 className="font-bold text-[#012A1A] text-lg" style={{ fontFamily: "'Orbitron', sans-serif" }}>{editandoAlunoId ? 'Editar Aluno' : 'Encaixar Aluno'}</h3><button onClick={() => { setIsModalOpen(false); setEditandoAlunoId(null); }} className="p-1 text-stone-400 hover:text-stone-800"><X className="h-5 w-5" /></button></div><form onSubmit={handleSalvarAluno} className="p-6 flex flex-col gap-4"><input type="text" autoFocus required placeholder="Nome do Aluno" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05] uppercase" value={novoAluno.nome} onChange={e => setNovoAluno({ ...novoAluno, nome: e.target.value })} /><input type="text" placeholder="WhatsApp (Opcional)" className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.whatsapp} onChange={e => setNovoAluno({ ...novoAluno, whatsapp: e.target.value })} /><div className="grid grid-cols-2 gap-4"><div><label className="block text-xs font-bold text-stone-500 mb-1">Nível</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.nivel} onChange={e => setNovoAluno({ ...novoAluno, nivel: e.target.value })}><option>Iniciante</option><option>Intermediário</option><option>Avançado</option></select></div><div><label className="block text-xs font-bold text-stone-500 mb-1">Plano</label><select className="w-full border-2 border-stone-200 rounded-lg p-3 font-semibold outline-none focus:border-[#91CA05]" value={novoAluno.plano} onChange={e => setNovoAluno({ ...novoAluno, plano: e.target.value })}><option>Mensalista</option><option>Avulso</option><option>Gympass</option><option>TotalPass</option></select></div></div>{!editandoAlunoId && <div className="p-3 bg-[#91CA05]/20 border border-[#91CA05] rounded-lg mt-2"><label className="block text-xs font-bold text-[#012A1A] mb-2">REPETIÇÃO AUTOMÁTICA</label><select className="w-full bg-white border border-stone-200 rounded-lg p-2 font-semibold outline-none text-sm" value={novoAluno.recorrencia} onChange={e => setNovoAluno({ ...novoAluno, recorrencia: e.target.value })}><option value="1">Apenas nesta data (Sem repetição)</option><option value="4">Repetir por 1 Mês (4 semanas)</option><option value="12">Repetir por 3 Meses (12 semanas)</option></select></div>}<button type="submit" disabled={loading} className="w-full py-3.5 bg-[#91CA05] text-[#012A1A] font-bold rounded-xl mt-2 hover:bg-[#a5e00b] transition-colors shadow-md">{loading ? 'Salvando...' : (editandoAlunoId ? 'Salvar Alterações' : 'Confirmar Vaga')}</button></form></div></div>)}
       {confirmDialog.show && (<div className="fixed inset-0 bg-[#012A1A]/80 backdrop-blur-sm flex items-center justify-center p-4 z-50"><div className="bg-white rounded-2xl p-6 text-center max-w-sm w-full border-t-4 border-red-500"><h3 className="font-bold text-lg mb-2 text-[#012A1A]" style={{ fontFamily: "'Orbitron', sans-serif" }}>{confirmDialog.title}</h3><p className="text-stone-500 font-medium text-sm mb-6">{confirmDialog.message}</p><div className="flex gap-3"><button onClick={() => setConfirmDialog({ show: false })} className="flex-1 py-2.5 bg-stone-100 font-bold text-stone-600 rounded-xl hover:bg-stone-200">Cancelar</button><button onClick={confirmDialog.onConfirm} className="flex-1 py-2.5 bg-red-500 hover:bg-red-600 text-white font-bold rounded-xl shadow-md">Sim, remover</button></div></div></div>)}
     </div>
   );
